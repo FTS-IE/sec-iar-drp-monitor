@@ -1,0 +1,107 @@
+name: IAR DRP Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      notify_always:
+        description: "Send email even when no DRP changes are detected"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # 14:17 UTC avoids the top-of-hour load window. It is 9:17 a.m. EST
+    # or 10:17 a.m. EDT.
+    - cron: "17 14 * * 1-5"
+
+permissions:
+  contents: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run tests
+        run: python -B -m unittest discover -s tests
+
+      - name: Run monitor
+        run: python -B -m scripts.iar_drp_monitor run --stable-latest
+
+      - name: Add summary to workflow run
+        if: success()
+        run: cat data/iar_drp_monitor/reports/latest_summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload latest report artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iar-drp-monitor-latest
+          path: |
+            data/iar_drp_monitor/reports/latest_summary.md
+            data/iar_drp_monitor/reports/latest_drp_changes.csv
+            data/iar_drp_monitor/state/latest_successful_run.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Commit latest comparison state
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/iar_drp_monitor/processed/latest_drp_rollup.csv
+          git add data/iar_drp_monitor/reports/latest_summary.md
+          git add data/iar_drp_monitor/reports/latest_drp_changes.csv
+          git add data/iar_drp_monitor/state/latest_successful_run.json
+          if git diff --cached --quiet; then
+            echo "No latest monitor output changes to commit."
+          else
+            git commit -m "Update IAR DRP monitor outputs"
+            git pull --rebase
+            git push
+          fi
+
+      - name: Send change notification email
+        if: success()
+        env:
+          IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
+          IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
+          IAR_DRP_SMTP_USERNAME: ${{ secrets.IAR_DRP_SMTP_USERNAME }}
+          IAR_DRP_SMTP_PASSWORD: ${{ secrets.IAR_DRP_SMTP_PASSWORD }}
+          IAR_DRP_SMTP_FROM: ${{ secrets.IAR_DRP_SMTP_FROM }}
+          IAR_DRP_SMTP_TO: ${{ secrets.IAR_DRP_SMTP_TO }}
+        run: |
+          if [ -z "${IAR_DRP_SMTP_HOST:-}" ] || [ -z "${IAR_DRP_SMTP_FROM:-}" ] || [ -z "${IAR_DRP_SMTP_TO:-}" ]; then
+            echo "::warning::SMTP secrets are not configured; skipping email notification."
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.notify_always }}" = "true" ]; then
+            python -B -m scripts.iar_drp_monitor notify-email
+          else
+            python -B -m scripts.iar_drp_monitor notify-email --only-if-changes
+          fi
+
+      - name: Send failure notification email
+        if: failure()
+        env:
+          IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
+          IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
+          IAR_DRP_SMTP_USERNAME: ${{ secrets.IAR_DRP_SMTP_USERNAME }}
+          IAR_DRP_SMTP_PASSWORD: ${{ secrets.IAR_DRP_SMTP_PASSWORD }}
+          IAR_DRP_SMTP_FROM: ${{ secrets.IAR_DRP_SMTP_FROM }}
+          IAR_DRP_SMTP_TO: ${{ secrets.IAR_DRP_SMTP_TO }}
+        run: |
+          if [ -z "${IAR_DRP_SMTP_HOST:-}" ] || [ -z "${IAR_DRP_SMTP_FROM:-}" ] || [ -z "${IAR_DRP_SMTP_TO:-}" ]; then
+            echo "::warning::SMTP secrets are not configured; skipping failure email notification."
+            exit 0
+          fi
+          python -B -m scripts.iar_drp_monitor notify-email \
+            --failure \
+            --failure-message "IAR DRP monitor failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

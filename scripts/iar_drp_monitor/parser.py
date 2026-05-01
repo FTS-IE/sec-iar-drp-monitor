@@ -1,0 +1,193 @@
+from __future__ import annotations
+
+import csv
+import zipfile
+from dataclasses import dataclass
+from pathlib import Path
+from xml.etree import ElementTree as ET
+
+from .constants import (
+    DRP_FIELDS,
+    DRP_FLAG_FIELDS,
+    DRP_FLAG_MAP,
+    DRP_ROLLUP_FIELDS,
+    REPRESENTATIVE_FIELDS,
+)
+
+
+@dataclass(frozen=True)
+class SourceContext:
+    run_id: str
+    source_file: str
+    source_url: str
+    retrieved_at: str
+
+
+@dataclass(frozen=True)
+class ParseOutputs:
+    representatives_csv: Path
+    drps_csv: Path
+    rollup_csv: Path
+
+
+@dataclass(frozen=True)
+class ParseStats:
+    source_generated_date: str
+    representative_count: int
+    drp_record_count: int
+    representatives_with_drp: int
+
+
+def parse_feed_to_csv(zip_path: Path, source: SourceContext, outputs: ParseOutputs) -> ParseStats:
+    outputs.representatives_csv.parent.mkdir(parents=True, exist_ok=True)
+    outputs.drps_csv.parent.mkdir(parents=True, exist_ok=True)
+    outputs.rollup_csv.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path) as archive:
+        member_name = _find_xml_member(archive)
+        with archive.open(member_name) as xml_file:
+            return _parse_xml_stream(xml_file, source, outputs)
+
+
+def _find_xml_member(archive: zipfile.ZipFile) -> str:
+    xml_members = [
+        name
+        for name in archive.namelist()
+        if name.lower().endswith(".xml") and not name.endswith("/")
+    ]
+    if not xml_members:
+        raise ValueError("The ZIP archive does not contain an XML file.")
+    if len(xml_members) > 1:
+        xml_members.sort()
+    return xml_members[0]
+
+
+def _parse_xml_stream(
+    xml_file, source: SourceContext, outputs: ParseOutputs
+) -> ParseStats:
+    source_generated_date = ""
+    representative_count = 0
+    drp_record_count = 0
+    representatives_with_drp = 0
+
+    with (
+        outputs.representatives_csv.open("w", encoding="utf-8", newline="") as reps_handle,
+        outputs.drps_csv.open("w", encoding="utf-8", newline="") as drps_handle,
+        outputs.rollup_csv.open("w", encoding="utf-8", newline="") as rollup_handle,
+    ):
+        reps_writer = csv.DictWriter(reps_handle, fieldnames=REPRESENTATIVE_FIELDS)
+        drps_writer = csv.DictWriter(drps_handle, fieldnames=DRP_FIELDS)
+        rollup_writer = csv.DictWriter(rollup_handle, fieldnames=DRP_ROLLUP_FIELDS)
+        reps_writer.writeheader()
+        drps_writer.writeheader()
+        rollup_writer.writeheader()
+
+        context = ET.iterparse(xml_file, events=("start", "end"))
+        for event, element in context:
+            tag = _local_name(element.tag)
+            if event == "start" and tag == "IAPDIndividualReport":
+                source_generated_date = element.attrib.get("GenOn", "")
+            elif event == "end" and tag == "Indvl":
+                rep_row, drp_rows, rollup_row = _extract_individual(
+                    element, source, source_generated_date
+                )
+                reps_writer.writerow(rep_row)
+                for drp_row in drp_rows:
+                    drps_writer.writerow(drp_row)
+                rollup_writer.writerow(rollup_row)
+
+                representative_count += 1
+                drp_record_count += len(drp_rows)
+                if rollup_row["has_any_drp"] == "Y":
+                    representatives_with_drp += 1
+                element.clear()
+
+    return ParseStats(
+        source_generated_date=source_generated_date,
+        representative_count=representative_count,
+        drp_record_count=drp_record_count,
+        representatives_with_drp=representatives_with_drp,
+    )
+
+
+def _extract_individual(element: ET.Element, source: SourceContext, generated_date: str):
+    info = _find_child(element, "Info")
+    info_attrs = info.attrib if info is not None else {}
+    indvl_pk = _clean(info_attrs.get("indvlPK", ""))
+
+    base = {
+        "run_id": source.run_id,
+        "source_file": source.source_file,
+        "source_url": source.source_url,
+        "source_generated_date": generated_date,
+        "retrieved_at": source.retrieved_at,
+        "indvl_pk": indvl_pk,
+        "first_name": _clean(info_attrs.get("firstNm", "")),
+        "middle_name": _clean(info_attrs.get("midNm", "")),
+        "last_name": _clean(info_attrs.get("lastNm", "")),
+        "suffix": _clean(info_attrs.get("sufNm", "")),
+        "active_ag_registration": _normalize_yn(info_attrs.get("actvAGReg", "")),
+        "profile_link": _clean(info_attrs.get("link", "")),
+    }
+
+    drp_rows = []
+    rollup_flags = {field: "N" for field in DRP_FLAG_FIELDS}
+    drps = _find_child(element, "DRPs")
+    if drps is not None:
+        for index, drp in enumerate(_iter_children(drps, "DRP"), start=1):
+            drp_row = {
+                "run_id": source.run_id,
+                "source_file": source.source_file,
+                "source_url": source.source_url,
+                "source_generated_date": generated_date,
+                "retrieved_at": source.retrieved_at,
+                "indvl_pk": indvl_pk,
+                "drp_index": str(index),
+            }
+            for xml_attr, output_field in DRP_FLAG_MAP.items():
+                value = _normalize_yn(drp.attrib.get(xml_attr, ""))
+                drp_row[output_field] = value
+                if value == "Y":
+                    rollup_flags[output_field] = "Y"
+            drp_rows.append(drp_row)
+
+    has_any_drp = "Y" if any(value == "Y" for value in rollup_flags.values()) else "N"
+    rollup_row = {
+        **base,
+        "drp_count": str(len(drp_rows)),
+        "has_any_drp": has_any_drp,
+        **rollup_flags,
+    }
+    return base, drp_rows, rollup_row
+
+
+def _find_child(element: ET.Element, name: str) -> ET.Element | None:
+    for child in element:
+        if _local_name(child.tag) == name:
+            return child
+    return None
+
+
+def _iter_children(element: ET.Element, name: str):
+    for child in element:
+        if _local_name(child.tag) == name:
+            yield child
+
+
+def _local_name(tag: str) -> str:
+    if "}" in tag:
+        return tag.rsplit("}", 1)[1]
+    return tag
+
+
+def _clean(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _normalize_yn(value: object) -> str:
+    cleaned = _clean(value).upper()
+    if cleaned in {"Y", "YES", "TRUE", "1"}:
+        return "Y"
+    if cleaned in {"N", "NO", "FALSE", "0"}:
+        return "N"
+    return ""

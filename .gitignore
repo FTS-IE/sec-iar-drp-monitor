@@ -1,0 +1,17 @@
+node_modules/
+.env
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+summaries/
+data/iar_drp_monitor/monitor.log
+data/iar_drp_monitor/raw/
+data/iar_drp_monitor/processed/*
+!data/iar_drp_monitor/processed/latest_drp_rollup.csv
+data/iar_drp_monitor/reports/*
+!data/iar_drp_monitor/reports/latest_summary.md
+!data/iar_drp_monitor/reports/latest_drp_changes.csv
+data/iar_drp_monitor/state/*
+!data/iar_drp_monitor/state/latest_successful_run.json

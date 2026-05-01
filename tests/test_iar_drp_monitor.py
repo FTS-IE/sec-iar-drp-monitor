@@ -1,0 +1,328 @@
+import csv
+import json
+import tempfile
+import unittest
+import zipfile
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+
+from scripts.iar_drp_monitor.cli import build_parser, latest, notify_email, run
+from scripts.iar_drp_monitor.compare import compare_rollups
+from scripts.iar_drp_monitor.downloader import select_individual_feed
+from scripts.iar_drp_monitor.emailer import EmailSettings
+from scripts.iar_drp_monitor.parser import ParseOutputs, SourceContext, parse_feed_to_csv
+
+
+FIXTURE_XML = """<?xml version="1.0" encoding="UTF-8"?>
+<IAPDIndividualReport GenOn="2026-04-30">
+  <Indvls>
+    <Indvl>
+      <Info lastNm="Smith" firstNm="Alex" midNm="Q" sufNm="" indvlPK="1001" actvAGReg="Y" link="https://adviserinfo.sec.gov/IAPD/Individual/1001"/>
+      <DRPs>
+        <DRP hasRegAction="Y" hasCriminal="N" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
+        <DRP hasRegAction="N" hasCriminal="Y" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
+      </DRPs>
+    </Indvl>
+    <Indvl>
+      <Info lastNm="Jones" firstNm="Bailey" indvlPK="1002" actvAGReg="Y" link="https://adviserinfo.sec.gov/IAPD/Individual/1002"/>
+    </Indvl>
+  </Indvls>
+</IAPDIndividualReport>
+"""
+
+
+class IarDrpMonitorTests(unittest.TestCase):
+    def test_select_individual_feed_from_manifest(self):
+        manifest = {
+            "files": [
+                {"name": "IA_FIRM_SEC_Feed_04_30_2026.xml.gz", "size": "77 MB", "date": "04/30/2026"},
+                {"name": "IA_INDVL_Feed_04_30_2026.xml.zip", "size": "166 MB", "date": "04/30/2026"},
+            ]
+        }
+
+        feed = select_individual_feed(manifest, "https://example.test/reports")
+
+        self.assertEqual(feed.name, "IA_INDVL_Feed_04_30_2026.xml.zip")
+        self.assertEqual(feed.url, "https://example.test/reports/IA_INDVL_Feed_04_30_2026.xml.zip")
+
+    def test_parse_feed_to_csv_rolls_up_drp_flags(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            zip_path = _write_fixture_zip(root / "sample.xml.zip", FIXTURE_XML)
+            outputs = ParseOutputs(
+                representatives_csv=root / "representatives.csv",
+                drps_csv=root / "drps.csv",
+                rollup_csv=root / "rollup.csv",
+            )
+            stats = parse_feed_to_csv(
+                zip_path,
+                SourceContext(
+                    run_id="run-current",
+                    source_file="sample.xml.zip",
+                    source_url="local:sample.xml.zip",
+                    retrieved_at="2026-04-30T00:00:00+00:00",
+                ),
+                outputs,
+            )
+
+            rollup = _read_csv_by_key(outputs.rollup_csv, "indvl_pk")
+
+            self.assertEqual(stats.source_generated_date, "2026-04-30")
+            self.assertEqual(stats.representative_count, 2)
+            self.assertEqual(stats.drp_record_count, 2)
+            self.assertEqual(rollup["1001"]["drp_count"], "2")
+            self.assertEqual(rollup["1001"]["has_reg_action"], "Y")
+            self.assertEqual(rollup["1001"]["has_criminal"], "Y")
+            self.assertEqual(rollup["1002"]["has_any_drp"], "N")
+
+    def test_compare_rollups_reports_added_removed_and_count_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            previous_zip = _write_fixture_zip(root / "previous.xml.zip", _fixture_xml(criminal="N"))
+            current_zip = _write_fixture_zip(root / "current.xml.zip", _fixture_xml(criminal="Y"))
+            previous_outputs = _parse_fixture(previous_zip, root / "previous", "previous-run")
+            current_outputs = _parse_fixture(current_zip, root / "current", "current-run")
+
+            result = compare_rollups(
+                current_outputs.rollup_csv,
+                previous_outputs.rollup_csv,
+                run_id="current-run",
+                previous_run_id="previous-run",
+            )
+
+            change_types = [change["change_type"] for change in result.changes]
+            categories = [change["category"] for change in result.changes]
+
+            self.assertIn("drp_count_changed", change_types)
+            self.assertIn("drp_category_added", change_types)
+            self.assertIn("has_criminal", categories)
+
+    def test_cli_local_zip_creates_baseline_outputs(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            zip_path = _write_fixture_zip(root / "IA_INDVL_Feed_sample.xml.zip", FIXTURE_XML)
+            args = build_parser().parse_args(
+                [
+                    "run",
+                    "--input-zip",
+                    str(zip_path),
+                    "--data-dir",
+                    str(root / "data"),
+                    "--run-id",
+                    "fixture-run",
+                ]
+            )
+
+            state = run(args)
+
+            self.assertEqual(state["run_id"], "fixture-run")
+            self.assertEqual(state["change_count"], 0)
+            self.assertTrue(Path(state["summary_md"]).exists())
+            self.assertTrue(Path(state["changes_csv"]).exists())
+            latest = json.loads((root / "data/state/latest_successful_run.json").read_text())
+            self.assertEqual(latest["run_id"], "fixture-run")
+
+    def test_cli_stable_latest_outputs_are_written_for_github_actions(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            zip_path = _write_fixture_zip(root / "IA_INDVL_Feed_sample.xml.zip", FIXTURE_XML)
+            args = build_parser().parse_args(
+                [
+                    "run",
+                    "--input-zip",
+                    str(zip_path),
+                    "--data-dir",
+                    str(root / "data"),
+                    "--run-id",
+                    "fixture-run",
+                    "--stable-latest",
+                ]
+            )
+
+            state = run(args)
+
+            self.assertEqual(state["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv"))
+            self.assertEqual(state["summary_md"], str(root / "data/reports/latest_summary.md"))
+            self.assertEqual(state["changes_csv"], str(root / "data/reports/latest_drp_changes.csv"))
+            self.assertTrue(Path(state["rollup_csv"]).exists())
+            self.assertTrue(Path(state["summary_md"]).exists())
+            self.assertTrue(Path(state["changes_csv"]).exists())
+            latest = json.loads((root / "data/state/latest_successful_run.json").read_text())
+            self.assertEqual(latest["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv"))
+
+    def test_latest_command_prints_latest_successful_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state_dir = root / "data/state"
+            state_dir.mkdir(parents=True)
+            (state_dir / "latest_successful_run.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "latest-run",
+                        "source_file": "IA_INDVL_Feed_sample.xml.zip",
+                        "retrieved_at": "2026-04-30T12:00:00+00:00",
+                        "summary_md": "data/reports/latest-run_summary.md",
+                        "changes_csv": "data/reports/latest-run_drp_changes.csv",
+                        "change_count": 3,
+                        "representative_count": 10,
+                        "drp_record_count": 4,
+                        "representatives_with_drp": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(["latest", "--data-dir", str(root / "data")])
+            output = StringIO()
+
+            with redirect_stdout(output):
+                state = latest(args)
+
+            self.assertEqual(state["run_id"], "latest-run")
+            self.assertIn("Latest successful run: latest-run", output.getvalue())
+            self.assertIn("DRP-related changes: 3", output.getvalue())
+
+    def test_notify_email_dry_run_uses_latest_summary(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_dir = root / "data"
+            state_dir = data_dir / "state"
+            reports_dir = data_dir / "reports"
+            state_dir.mkdir(parents=True)
+            reports_dir.mkdir(parents=True)
+            summary_path = reports_dir / "latest_summary.md"
+            changes_path = reports_dir / "latest_drp_changes.csv"
+            summary_path.write_text("# Summary\n\nDRP changes found.\n", encoding="utf-8")
+            changes_path.write_text("change_type\nexample\n", encoding="utf-8")
+            (state_dir / "latest_successful_run.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "latest-run",
+                        "source_file": "IA_INDVL_Feed_sample.xml.zip",
+                        "retrieved_at": "2026-04-30T12:00:00+00:00",
+                        "summary_md": str(summary_path),
+                        "changes_csv": str(changes_path),
+                        "change_count": 2,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "notify-email",
+                    "--data-dir",
+                    str(data_dir),
+                    "--dry-run",
+                    "--smtp-from",
+                    "alerts@example.test",
+                    "--smtp-to",
+                    "editor@example.test",
+                ]
+            )
+            output = StringIO()
+
+            with redirect_stdout(output):
+                sent = notify_email(args)
+
+            self.assertTrue(sent)
+            self.assertIn("Dry run: email not sent", output.getvalue())
+            self.assertIn("IAR DRP Monitor: 2 change(s) in latest-run", output.getvalue())
+
+    def test_notify_email_skips_when_only_if_changes_and_no_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            state_dir = root / "data/state"
+            state_dir.mkdir(parents=True)
+            (state_dir / "latest_successful_run.json").write_text(
+                json.dumps({"run_id": "latest-run", "change_count": 0}),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "notify-email",
+                    "--data-dir",
+                    str(root / "data"),
+                    "--only-if-changes",
+                    "--dry-run",
+                ]
+            )
+            output = StringIO()
+
+            with redirect_stdout(output):
+                sent = notify_email(args)
+
+            self.assertFalse(sent)
+            self.assertIn("No DRP changes detected; skipping email.", output.getvalue())
+
+    def test_email_settings_defaults_blank_port_to_587(self):
+        args = build_parser().parse_args(
+            [
+                "notify-email",
+                "--smtp-host",
+                "smtp.example.test",
+                "--smtp-port",
+                "",
+                "--smtp-from",
+                "alerts@example.test",
+                "--smtp-to",
+                "editor@example.test",
+            ]
+        )
+
+        settings = EmailSettings.from_args_env(args)
+
+        self.assertEqual(settings.port, 587)
+
+
+def _write_fixture_zip(path: Path, xml: str) -> Path:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("fixture.xml", xml)
+    return path
+
+
+def _parse_fixture(zip_path: Path, output_dir: Path, run_id: str) -> ParseOutputs:
+    output_dir.mkdir(parents=True)
+    outputs = ParseOutputs(
+        representatives_csv=output_dir / "representatives.csv",
+        drps_csv=output_dir / "drps.csv",
+        rollup_csv=output_dir / "rollup.csv",
+    )
+    parse_feed_to_csv(
+        zip_path,
+        SourceContext(
+            run_id=run_id,
+            source_file=zip_path.name,
+            source_url=f"local:{zip_path}",
+            retrieved_at="2026-04-30T00:00:00+00:00",
+        ),
+        outputs,
+    )
+    return outputs
+
+
+def _read_csv_by_key(path: Path, key: str) -> dict[str, dict]:
+    with path.open("r", encoding="utf-8", newline="") as handle:
+        return {row[key]: row for row in csv.DictReader(handle)}
+
+
+def _fixture_xml(criminal: str) -> str:
+    extra_drp = ""
+    if criminal == "Y":
+        extra_drp = '<DRP hasRegAction="N" hasCriminal="Y" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>'
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<IAPDIndividualReport GenOn="2026-04-30">
+  <Indvls>
+    <Indvl>
+      <Info lastNm="Smith" firstNm="Alex" indvlPK="1001" actvAGReg="Y" link="https://adviserinfo.sec.gov/IAPD/Individual/1001"/>
+      <DRPs>
+        <DRP hasRegAction="Y" hasCriminal="N" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
+        {extra_drp}
+      </DRPs>
+    </Indvl>
+  </Indvls>
+</IAPDIndividualReport>
+"""
+
+
+if __name__ == "__main__":
+    unittest.main()
