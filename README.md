@@ -47,16 +47,6 @@ Large raw source ZIPs and run-specific full outputs stay ignored by git.
 
 ## Email Setup
 
-Add these repository secrets in GitHub under Settings -> Secrets and variables -> Actions:
-
-- `IAR_DRP_SMTP_HOST`
-- `IAR_DRP_SMTP_PORT`
-- `IAR_DRP_SMTP_USERNAME`
-- `IAR_DRP_SMTP_PASSWORD`
-- `IAR_DRP_SMTP_FROM`
-- `IAR_DRP_SMTP_TO`
-
-`IAR_DRP_SMTP_PORT` defaults to `587` if omitted. `IAR_DRP_SMTP_TO` can contain one address or a comma-separated list. STARTTLS is used by default. Set `IAR_DRP_SMTP_SSL=true` if your SMTP provider requires SMTP over SSL instead.
 
 For local testing without sending:
 
