@@ -1,9 +1,9 @@
-# IAR DRP Change Summary: 20260504T151753Z
+# IAR DRP Change Summary: 20260504T161413Z
 
 ## Source
 - Current source file: `IA_INDVL_Feed_05_04_2026.xml.zip`
 - Source URL: https://reports.adviserinfo.sec.gov/reports/CompilationReports/IA_INDVL_Feed_05_04_2026.xml.zip
-- Retrieved at: 2026-05-04T15:17:53+00:00
+- Retrieved at: 2026-05-04T16:14:13+00:00
 - XML generated date: 2026-05-04
 - SHA-256: `624f3200c89c24c89eb5811f48014d5e6fa7a7ab5d41b843f04fb7460ea0611a`
 
@@ -19,19 +19,14 @@
 - Representatives with at least one DRP flag: 4,865
 
 ## Changes Since Previous Run
-- Previous run: `20260501T155422Z`
-- Total DRP-related changes: 9,077
+- Previous run: `20260504T151753Z`
+- Total DRP-related changes: 0
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
 
-### Change Types
-- new_representative_with_drp: 4,859
-- representative_removed_from_feed: 4,218
-
-### Changed Categories
-- any_drp: 9,077
+No DRP rollup changes were detected.
 
 ## Output Files
-- Representatives CSV: `data/iar_drp_monitor/processed/20260504T151753Z_representatives.csv`
-- DRP occurrence CSV: `data/iar_drp_monitor/processed/20260504T151753Z_drps.csv`
+- Representatives CSV: `data/iar_drp_monitor/processed/20260504T161413Z_representatives.csv`
+- DRP occurrence CSV: `data/iar_drp_monitor/processed/20260504T161413Z_drps.csv`
 - DRP rollup CSV: `data/iar_drp_monitor/processed/latest_drp_rollup.csv`
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
