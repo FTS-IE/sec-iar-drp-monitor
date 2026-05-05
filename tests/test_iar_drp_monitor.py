@@ -76,6 +76,48 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertEqual(rollup["1001"]["has_criminal"], "Y")
             self.assertEqual(rollup["1002"]["has_any_drp"], "N")
 
+    def test_parse_feed_to_csv_includes_current_employers(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            zip_path = _write_fixture_zip(
+                root / "sample.xml.zip",
+                _fixture_xml_with_current_employers(
+                    [
+                        ("222", "BETA CAPITAL LLC"),
+                        ("111", "ALPHA ADVISERS LLC"),
+                    ]
+                ),
+            )
+            outputs = ParseOutputs(
+                representatives_csv=root / "representatives.csv",
+                drps_csv=root / "drps.csv",
+                rollup_csv=root / "rollup.csv",
+            )
+
+            parse_feed_to_csv(
+                zip_path,
+                SourceContext(
+                    run_id="run-current",
+                    source_file="sample.xml.zip",
+                    source_url="local:sample.xml.zip",
+                    retrieved_at="2026-04-30T00:00:00+00:00",
+                ),
+                outputs,
+            )
+
+            rollup = _read_csv_by_key(outputs.rollup_csv, "indvl_pk")
+
+            self.assertEqual(rollup["1001"]["current_employer_count"], "2")
+            self.assertEqual(rollup["1001"]["current_employer_org_pks"], "111 | 222")
+            self.assertEqual(
+                rollup["1001"]["current_employer_names"],
+                "ALPHA ADVISERS LLC | BETA CAPITAL LLC",
+            )
+            self.assertEqual(
+                rollup["1001"]["current_employers"],
+                "111: ALPHA ADVISERS LLC | 222: BETA CAPITAL LLC",
+            )
+
     def test_compare_rollups_reports_added_removed_and_count_changes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -97,6 +139,70 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertIn("drp_count_changed", change_types)
             self.assertIn("drp_category_added", change_types)
             self.assertIn("has_criminal", categories)
+
+    def test_compare_rollups_reports_current_employer_changes(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            previous_zip = _write_fixture_zip(
+                root / "previous.xml.zip",
+                _fixture_xml_with_current_employers([("111", "ALPHA ADVISERS LLC")]),
+            )
+            current_zip = _write_fixture_zip(
+                root / "current.xml.zip",
+                _fixture_xml_with_current_employers([("222", "BETA CAPITAL LLC")]),
+            )
+            previous_outputs = _parse_fixture(previous_zip, root / "previous", "previous-run")
+            current_outputs = _parse_fixture(current_zip, root / "current", "current-run")
+
+            result = compare_rollups(
+                current_outputs.rollup_csv,
+                previous_outputs.rollup_csv,
+                run_id="current-run",
+                previous_run_id="previous-run",
+            )
+
+            employer_changes = [
+                change
+                for change in result.changes
+                if change["change_type"] == "current_employer_changed"
+            ]
+
+            self.assertEqual(len(employer_changes), 1)
+            self.assertEqual(employer_changes[0]["category"], "current_employer")
+            self.assertEqual(employer_changes[0]["previous_value"], "111: ALPHA ADVISERS LLC")
+            self.assertEqual(employer_changes[0]["current_value"], "222: BETA CAPITAL LLC")
+
+    def test_compare_rollups_skips_employer_changes_for_legacy_baselines(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            current_zip = _write_fixture_zip(
+                root / "current.xml.zip",
+                _fixture_xml_with_current_employers([("222", "BETA CAPITAL LLC")]),
+            )
+            current_outputs = _parse_fixture(current_zip, root / "current", "current-run")
+            legacy_rollup = root / "legacy_rollup.csv"
+            legacy_rollup.write_text(
+                "\n".join(
+                    [
+                        "run_id,source_file,source_url,source_generated_date,retrieved_at,indvl_pk,first_name,middle_name,last_name,suffix,active_ag_registration,profile_link,drp_count,has_any_drp,has_reg_action,has_criminal,has_bankrupt,has_civil_judgment,has_bond,has_judgment,has_investigation,has_customer_complaint,has_termination",
+                        "previous-run,previous.xml.zip,local:previous.xml.zip,2026-04-30,2026-04-30T00:00:00+00:00,1001,Alex,,Smith,,Y,https://adviserinfo.sec.gov/IAPD/Individual/1001,0,N,N,N,N,N,N,N,N,N,N",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            result = compare_rollups(
+                current_outputs.rollup_csv,
+                legacy_rollup,
+                run_id="current-run",
+                previous_run_id="previous-run",
+            )
+
+            self.assertNotIn(
+                "current_employer_changed",
+                [change["change_type"] for change in result.changes],
+            )
 
     def test_cli_local_zip_creates_baseline_outputs(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -180,7 +286,7 @@ class IarDrpMonitorTests(unittest.TestCase):
 
             self.assertEqual(state["run_id"], "latest-run")
             self.assertIn("Latest successful run: latest-run", output.getvalue())
-            self.assertIn("DRP-related changes: 3", output.getvalue())
+            self.assertIn("Reported changes: 3", output.getvalue())
 
     def test_notify_email_dry_run_uses_latest_summary(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -252,7 +358,7 @@ class IarDrpMonitorTests(unittest.TestCase):
                 sent = notify_email(args)
 
             self.assertFalse(sent)
-            self.assertIn("No DRP changes detected; skipping email.", output.getvalue())
+            self.assertIn("No reportable changes detected; skipping email.", output.getvalue())
 
     def test_email_settings_defaults_blank_port_to_587(self):
         args = build_parser().parse_args(
@@ -318,6 +424,25 @@ def _fixture_xml(criminal: str) -> str:
         <DRP hasRegAction="Y" hasCriminal="N" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
         {extra_drp}
       </DRPs>
+    </Indvl>
+  </Indvls>
+</IAPDIndividualReport>
+"""
+
+
+def _fixture_xml_with_current_employers(employers: list[tuple[str, str]]) -> str:
+    employer_xml = "\n".join(
+        f'<CrntEmp orgNm="{name}" orgPK="{org_pk}" city="Boston" state="MA" cntry="United States"/>'
+        for org_pk, name in employers
+    )
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<IAPDIndividualReport GenOn="2026-04-30">
+  <Indvls>
+    <Indvl>
+      <Info lastNm="Smith" firstNm="Alex" indvlPK="1001" actvAGReg="Y" link="https://adviserinfo.sec.gov/IAPD/Individual/1001"/>
+      <CrntEmps>
+        {employer_xml}
+      </CrntEmps>
     </Indvl>
   </Indvls>
 </IAPDIndividualReport>

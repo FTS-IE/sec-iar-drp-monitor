@@ -29,8 +29,8 @@ def write_markdown_report(
         "",
         "## Scope And Method",
         "- Scope: Registered Investment Adviser Representative compilation feed only.",
-        "- Change detection: DRP rollup flags only; non-DRP profile changes are not reported.",
-        "- Method: stream-parse the SEC/IAPD XML feed, normalize each representative's DRP category flags, compare the current rollup with the previous successful local run.",
+        "- Change detection: DRP rollup flags and current employer lists; other profile changes are not reported.",
+        "- Method: stream-parse the SEC/IAPD XML feed, normalize each representative's DRP category flags and current employers, compare the current rollup with the previous successful local run.",
         "- Reporting caution: a DRP flag is a disclosure signal in the source feed, not an independent finding that misconduct occurred.",
         "",
         "## Current Run Counts",
@@ -54,7 +54,7 @@ def write_markdown_report(
             [
                 "## Changes Since Previous Run",
                 f"- Previous run: `{previous_run_id}`",
-                f"- Total DRP-related changes: {len(compare_result.changes):,}",
+                f"- Total reported changes: {len(compare_result.changes):,}",
                 f"- Change CSV: `{changes_csv}`",
                 "",
             ]
@@ -69,14 +69,14 @@ def write_markdown_report(
                 lines.append(f"- {category}: {count:,}")
             lines.append("")
         else:
-            lines.extend(["No DRP rollup changes were detected.", ""])
+            lines.extend(["No monitored changes were detected.", ""])
 
     lines.extend(
         [
             "## Output Files",
             f"- Representatives CSV: `{run_state['representatives_csv']}`",
             f"- DRP occurrence CSV: `{run_state['drps_csv']}`",
-            f"- DRP rollup CSV: `{run_state['rollup_csv']}`",
+            f"- Rollup CSV: `{run_state['rollup_csv']}`",
             f"- Change CSV: `{changes_csv}`",
             "",
         ]

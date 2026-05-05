@@ -11,6 +11,7 @@ from .constants import (
     DRP_FLAG_FIELDS,
     DRP_FLAG_MAP,
     DRP_ROLLUP_FIELDS,
+    CURRENT_EMPLOYER_FIELDS,
     REPRESENTATIVE_FIELDS,
 )
 
@@ -128,6 +129,7 @@ def _extract_individual(element: ET.Element, source: SourceContext, generated_da
         "suffix": _clean(info_attrs.get("sufNm", "")),
         "active_ag_registration": _normalize_yn(info_attrs.get("actvAGReg", "")),
         "profile_link": _clean(info_attrs.get("link", "")),
+        **_current_employer_fields(element),
     }
 
     drp_rows = []
@@ -159,6 +161,54 @@ def _extract_individual(element: ET.Element, source: SourceContext, generated_da
         **rollup_flags,
     }
     return base, drp_rows, rollup_row
+
+
+def _current_employer_fields(element: ET.Element) -> dict[str, str]:
+    employers = _current_employers(element)
+    org_pks = [employer["org_pk"] for employer in employers if employer["org_pk"]]
+    org_names = [employer["org_name"] for employer in employers if employer["org_name"]]
+    values = {
+        "current_employer_count": str(len(employers)),
+        "current_employer_org_pks": " | ".join(org_pks),
+        "current_employer_names": " | ".join(org_names),
+        "current_employers": " | ".join(_format_employer(employer) for employer in employers),
+    }
+    return {field: values.get(field, "") for field in CURRENT_EMPLOYER_FIELDS}
+
+
+def _current_employers(element: ET.Element) -> list[dict[str, str]]:
+    current_employers = _find_child(element, "CrntEmps")
+    if current_employers is None:
+        return []
+
+    employers = []
+    seen = set()
+    for employer in _iter_children(current_employers, "CrntEmp"):
+        org_pk = _clean(employer.attrib.get("orgPK", ""))
+        org_name = _clean(employer.attrib.get("orgNm", ""))
+        if not org_pk and not org_name:
+            continue
+        key = (org_pk, org_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        employers.append({"org_pk": org_pk, "org_name": org_name})
+
+    return sorted(employers, key=_employer_sort_key)
+
+
+def _format_employer(employer: dict[str, str]) -> str:
+    org_pk = employer["org_pk"]
+    org_name = employer["org_name"]
+    if org_pk and org_name:
+        return f"{org_pk}: {org_name}"
+    return org_name or org_pk
+
+
+def _employer_sort_key(employer: dict[str, str]) -> tuple[str, str]:
+    org_pk = employer["org_pk"]
+    org_pk_key = org_pk.zfill(20) if org_pk.isdigit() else org_pk.casefold()
+    return org_pk_key, employer["org_name"].casefold()
 
 
 def _find_child(element: ET.Element, name: str) -> ET.Element | None:

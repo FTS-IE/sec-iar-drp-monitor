@@ -22,6 +22,14 @@ DRP_FLAG_MAP = {
 
 DRP_FLAG_FIELDS = list(DRP_FLAG_MAP.values())
 
+CURRENT_EMPLOYERS_FIELD = "current_employers"
+CURRENT_EMPLOYER_FIELDS = [
+    "current_employer_count",
+    "current_employer_org_pks",
+    "current_employer_names",
+    CURRENT_EMPLOYERS_FIELD,
+]
+
 REPRESENTATIVE_FIELDS = [
     "run_id",
     "source_file",
@@ -35,6 +43,7 @@ REPRESENTATIVE_FIELDS = [
     "suffix",
     "active_ag_registration",
     "profile_link",
+    *CURRENT_EMPLOYER_FIELDS,
 ]
 
 DRP_FIELDS = [
@@ -61,6 +70,7 @@ DRP_ROLLUP_FIELDS = [
     "suffix",
     "active_ag_registration",
     "profile_link",
+    *CURRENT_EMPLOYER_FIELDS,
     "drp_count",
     "has_any_drp",
     *DRP_FLAG_FIELDS,

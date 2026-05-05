@@ -41,7 +41,10 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m scripts.iar_drp_monitor",
-        description="Download and compare SEC/IAPD IAR DRP disclosure flags.",
+        description=(
+            "Download and compare SEC/IAPD IAR DRP disclosure flags and "
+            "current employer details."
+        ),
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -112,7 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     notify_parser.add_argument(
         "--only-if-changes",
         action="store_true",
-        help="Skip the email when the latest successful run has zero DRP changes.",
+        help="Skip the email when the latest successful run has zero reported changes.",
     )
     notify_parser.add_argument(
         "--failure",
@@ -164,7 +167,7 @@ def notify_email(args: argparse.Namespace) -> bool:
 
     change_count = int(state.get("change_count") or 0)
     if args.only_if_changes and change_count == 0:
-        print("No DRP changes detected; skipping email.")
+        print("No reportable changes detected; skipping email.")
         return False
 
     summary_path = Path(state.get("summary_md", ""))
@@ -189,7 +192,7 @@ def latest(args: argparse.Namespace) -> dict | None:
     print(f"Representatives parsed: {state.get('representative_count', '')}")
     print(f"DRP occurrence rows: {state.get('drp_record_count', '')}")
     print(f"Representatives with DRPs: {state.get('representatives_with_drp', '')}")
-    print(f"DRP-related changes: {state.get('change_count', '')}")
+    print(f"Reported changes: {state.get('change_count', '')}")
     print(f"Summary: {state.get('summary_md', '')}")
     print(f"Change CSV: {state.get('changes_csv', '')}")
     return state
@@ -304,7 +307,7 @@ def run(args: argparse.Namespace) -> dict:
     print(f"Run ID: {run_id}")
     print(f"Source file: {feed.name}")
     print(f"Representatives parsed: {parse_stats.representative_count}")
-    print(f"DRP-related changes: {len(compare_result.changes)}")
+    print(f"Reported changes: {len(compare_result.changes)}")
     print(f"Summary: {summary_md}")
     print(f"State: {state_path}")
     return run_state
@@ -315,7 +318,7 @@ def _latest_email_body(state: dict, summary_text: str) -> str:
         f"Run ID: {state.get('run_id', '')}",
         f"Source file: {state.get('source_file', '')}",
         f"Retrieved at: {state.get('retrieved_at', '')}",
-        f"DRP-related changes: {state.get('change_count', '')}",
+        f"Reported changes: {state.get('change_count', '')}",
         f"Summary path: {state.get('summary_md', '')}",
         f"Change CSV path: {state.get('changes_csv', '')}",
         "",

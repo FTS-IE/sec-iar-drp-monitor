@@ -5,7 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from .constants import CHANGE_FIELDS, DRP_FLAG_FIELDS
+from .constants import CHANGE_FIELDS, CURRENT_EMPLOYERS_FIELD, DRP_FLAG_FIELDS
 
 
 @dataclass(frozen=True)
@@ -101,6 +101,23 @@ def compare_rollups(
                     current_value,
                 )
             )
+
+        if CURRENT_EMPLOYERS_FIELD in previous_row:
+            previous_value = previous_row.get(CURRENT_EMPLOYERS_FIELD, "")
+            current_value = current_row.get(CURRENT_EMPLOYERS_FIELD, "")
+            if previous_value != current_value:
+                changes.append(
+                    _change(
+                        run_id,
+                        previous_run_id,
+                        "current_employer_changed",
+                        current_row,
+                        previous_row,
+                        "current_employer",
+                        previous_value,
+                        current_value,
+                    )
+                )
 
     return CompareResult(
         changes=changes,

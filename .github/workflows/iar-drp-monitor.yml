@@ -12,6 +12,20 @@ on:
     # 14:17 UTC avoids the top-of-hour load window. It is 9:17 a.m. EST
     # or 10:17 a.m. EDT.
     - cron: "17 14 * * 1-5"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/iar-drp-monitor.yml"
+      - "scripts/iar_drp_monitor/**"
+      - "tests/**"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/iar-drp-monitor.yml"
+      - "scripts/iar_drp_monitor/**"
+      - "tests/**"
 
 permissions:
   contents: write
@@ -33,14 +47,15 @@ jobs:
         run: python -B -m unittest discover -s tests
 
       - name: Run monitor
+        if: github.event_name != 'pull_request'
         run: python -B -m scripts.iar_drp_monitor run --stable-latest
 
       - name: Add summary to workflow run
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         run: cat data/iar_drp_monitor/reports/latest_summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload latest report artifacts
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: iar-drp-monitor-latest
@@ -52,7 +67,7 @@ jobs:
           retention-days: 30
 
       - name: Commit latest comparison state
-        if: success()
+        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -69,7 +84,7 @@ jobs:
           fi
 
       - name: Send change notification email
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         env:
           IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
           IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
@@ -89,7 +104,7 @@ jobs:
           fi
 
       - name: Send failure notification email
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         env:
           IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
           IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
