@@ -466,6 +466,28 @@ class IarDrpMonitorTests(unittest.TestCase):
 
         self.assertEqual(settings.port, 587)
 
+    def test_workflow_runs_live_monitor_only_for_schedule_or_manual_events(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/iar-drp-monitor.yml"
+        ).read_text(encoding="utf-8")
+        live_monitor_steps = [
+            "Run monitor",
+            "Add summary to workflow run",
+            "Upload latest report artifacts",
+            "Commit latest comparison state",
+            "Send change notification email",
+            "Send failure notification email",
+        ]
+
+        for step_name in live_monitor_steps:
+            block = _workflow_step_block(workflow, step_name)
+            condition = _workflow_step_if_condition(block)
+
+            self.assertIn("github.event_name == 'schedule'", condition)
+            self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+            self.assertNotIn("github.event_name != 'pull_request'", condition)
+
 
 def _write_fixture_zip(path: Path, xml: str) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -503,6 +525,26 @@ def _parse_fixture(zip_path: Path, output_dir: Path, run_id: str) -> ParseOutput
 def _read_csv_by_key(path: Path, key: str) -> dict[str, dict]:
     with path.open("r", encoding="utf-8", newline="") as handle:
         return {row[key]: row for row in csv.DictReader(handle)}
+
+
+def _workflow_step_block(workflow: str, step_name: str) -> list[str]:
+    lines = workflow.splitlines()
+    start = next(
+        index for index, line in enumerate(lines) if line.strip() == f"- name: {step_name}"
+    )
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if lines[index].strip().startswith("- name: "):
+            end = index
+            break
+    return lines[start:end]
+
+
+def _workflow_step_if_condition(step_block: list[str]) -> str:
+    if_lines = [line.strip() for line in step_block if line.strip().startswith("if: ")]
+    if not if_lines:
+        raise AssertionError(f"Step has no if condition: {step_block[0].strip()}")
+    return if_lines[0]
 
 
 def _fixture_xml(criminal: str) -> str:

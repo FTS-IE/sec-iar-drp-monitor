@@ -47,15 +47,15 @@ jobs:
         run: python -B -m unittest discover -s tests
 
       - name: Run monitor
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: python -B -m scripts.iar_drp_monitor run --stable-latest
 
       - name: Add summary to workflow run
-        if: success() && github.event_name != 'pull_request'
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         run: cat data/iar_drp_monitor/reports/latest_summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload latest report artifacts
-        if: success() && github.event_name != 'pull_request'
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         uses: actions/upload-artifact@v4
         with:
           name: iar-drp-monitor-latest
@@ -67,7 +67,7 @@ jobs:
           retention-days: 30
 
       - name: Commit latest comparison state
-        if: success() && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -84,7 +84,7 @@ jobs:
           fi
 
       - name: Send change notification email
-        if: success() && github.event_name != 'pull_request'
+        if: success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
           IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
@@ -104,7 +104,7 @@ jobs:
           fi
 
       - name: Send failure notification email
-        if: failure() && github.event_name != 'pull_request'
+        if: failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
         env:
           IAR_DRP_SMTP_HOST: ${{ secrets.IAR_DRP_SMTP_HOST }}
           IAR_DRP_SMTP_PORT: ${{ secrets.IAR_DRP_SMTP_PORT }}
