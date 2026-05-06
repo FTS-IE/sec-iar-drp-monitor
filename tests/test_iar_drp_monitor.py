@@ -1,5 +1,7 @@
 import csv
+import gzip
 import json
+import shutil
 import tempfile
 import unittest
 import zipfile
@@ -173,6 +175,29 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertEqual(set(current_rollup), {"1001", "1002"})
             self.assertEqual(result.changes, [])
 
+    def test_compare_rollups_reads_gzipped_previous_rollup_baseline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            previous_zip = _write_fixture_zip(root / "previous.xml.zip", FIXTURE_XML)
+            current_zip = _write_fixture_zip(root / "current.xml.zip", FIXTURE_XML)
+            previous_outputs = _parse_fixture(previous_zip, root / "previous", "previous-run")
+            current_outputs = _parse_fixture(current_zip, root / "current", "current-run")
+            gzipped_previous_rollup = root / "previous_rollup.csv.gz"
+            with (
+                previous_outputs.rollup_csv.open("rb") as source,
+                gzip.open(gzipped_previous_rollup, "wb") as destination,
+            ):
+                shutil.copyfileobj(source, destination)
+
+            result = compare_rollups(
+                current_outputs.rollup_csv,
+                gzipped_previous_rollup,
+                run_id="current-run",
+                previous_run_id="previous-run",
+            )
+
+            self.assertEqual(result.changes, [])
+
     def test_compare_rollups_reports_current_employer_changes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -281,14 +306,15 @@ class IarDrpMonitorTests(unittest.TestCase):
 
             state = run(args)
 
-            self.assertEqual(state["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv"))
+            self.assertEqual(state["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv.gz"))
             self.assertEqual(state["summary_md"], str(root / "data/reports/latest_summary.md"))
             self.assertEqual(state["changes_csv"], str(root / "data/reports/latest_drp_changes.csv"))
             self.assertTrue(Path(state["rollup_csv"]).exists())
+            self.assertFalse((root / "data/processed/latest_drp_rollup.csv").exists())
             self.assertTrue(Path(state["summary_md"]).exists())
             self.assertTrue(Path(state["changes_csv"]).exists())
             latest = json.loads((root / "data/state/latest_successful_run.json").read_text())
-            self.assertEqual(latest["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv"))
+            self.assertEqual(latest["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv.gz"))
 
     def test_cli_skips_comparison_against_unversioned_partial_rollup_baseline(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -501,6 +527,16 @@ class IarDrpMonitorTests(unittest.TestCase):
         self.assertIn('git push origin "HEAD:$branch"', block)
         self.assertNotIn("git pull --rebase", block)
         self.assertNotIn("\n            git push\n", block)
+
+    def test_workflow_commits_compressed_monitor_rollup_state(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/iar-drp-monitor.yml"
+        ).read_text(encoding="utf-8")
+        block = "\n".join(_workflow_step_block(workflow, "Commit latest comparison state"))
+
+        self.assertIn("git add data/iar_drp_monitor/processed/latest_drp_rollup.csv.gz", block)
+        self.assertNotIn("git add data/iar_drp_monitor/processed/latest_drp_rollup.csv\n", block)
 
 
 def _write_fixture_zip(path: Path, xml: str) -> Path:

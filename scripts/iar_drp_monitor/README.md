@@ -42,7 +42,7 @@ python3 -m scripts.iar_drp_monitor run --input-zip path/to/IA_INDVL_sample.xml.z
 
 The workflow at `.github/workflows/iar-drp-monitor.yml` runs on weekdays at 14:17 UTC, which is 9:17 a.m. Eastern Standard Time or 10:17 a.m. Eastern Daylight Time. It can also be run manually from the GitHub Actions tab.
 
-The workflow runs tests, downloads and processes the current SEC/IAPD IAR compilation feed, writes stable latest files needed for the next comparison, commits only lightweight latest outputs back to the repo, uploads the latest report files as a 30-day artifact, emails the summary when monitored changes are detected, and emails a failure alert when the workflow fails.
+The workflow runs tests, downloads and processes the current SEC/IAPD IAR compilation feed, writes stable latest files needed for the next comparison, commits only lightweight latest outputs and a compressed rollup baseline back to the repo, uploads the latest report files as a 30-day artifact, emails the summary when monitored changes are detected, and emails a failure alert when the workflow fails.
 
 Large raw source ZIPs and run-specific full outputs stay ignored by git.
 

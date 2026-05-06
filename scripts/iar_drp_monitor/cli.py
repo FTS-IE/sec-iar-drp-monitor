@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import shutil
 from collections import Counter
@@ -296,10 +297,11 @@ def run(args: argparse.Namespace) -> dict:
     summary_md = run_summary_md
     changes_csv = run_changes_csv
     if args.stable_latest:
-        latest_rollup = paths["processed"] / "latest_drp_rollup.csv"
+        latest_rollup = paths["processed"] / "latest_drp_rollup.csv.gz"
         latest_changes = paths["reports"] / "latest_drp_changes.csv"
         latest_summary = paths["reports"] / "latest_summary.md"
-        shutil.copy2(outputs.rollup_csv, latest_rollup)
+        _copy_gzip(outputs.rollup_csv, latest_rollup)
+        _remove_file_if_exists(paths["processed"] / "latest_drp_rollup.csv")
         shutil.copy2(run_changes_csv, latest_changes)
         run_state["rollup_csv"] = str(latest_rollup)
         run_state["changes_csv"] = str(latest_changes)
@@ -379,6 +381,22 @@ def _comparison_skipped_reason(
         f"the previous rollup parser version was {previous_version}, "
         f"but the current parser version is {ROLLUP_PARSER_VERSION}"
     )
+
+
+def _copy_gzip(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        source.open("rb") as source_handle,
+        gzip.open(destination, "wb", compresslevel=9) as destination_handle,
+    ):
+        shutil.copyfileobj(source_handle, destination_handle)
+
+
+def _remove_file_if_exists(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _prepare_paths(data_dir: Path, run_id: str) -> dict[str, Path]:

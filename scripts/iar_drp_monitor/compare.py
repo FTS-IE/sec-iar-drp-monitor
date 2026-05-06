@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import gzip
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -137,12 +138,18 @@ def write_changes_csv(path: Path, changes: list[dict]) -> None:
 def _read_rollup(path: Path | None) -> dict[str, dict]:
     if path is None or not path.exists():
         return {}
-    with path.open("r", encoding="utf-8", newline="") as handle:
+    with _open_rollup_text(path) as handle:
         return {
             row["indvl_pk"]: row
             for row in csv.DictReader(handle)
             if row.get("indvl_pk")
         }
+
+
+def _open_rollup_text(path: Path):
+    if path.suffix == ".gz":
+        return gzip.open(path, "rt", encoding="utf-8", newline="")
+    return path.open("r", encoding="utf-8", newline="")
 
 
 def _change(

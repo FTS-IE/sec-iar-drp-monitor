@@ -73,7 +73,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/iar_drp_monitor/processed/latest_drp_rollup.csv
+          git add data/iar_drp_monitor/processed/latest_drp_rollup.csv.gz
           git add data/iar_drp_monitor/reports/latest_summary.md
           git add data/iar_drp_monitor/reports/latest_drp_changes.csv
           git add data/iar_drp_monitor/state/latest_successful_run.json
