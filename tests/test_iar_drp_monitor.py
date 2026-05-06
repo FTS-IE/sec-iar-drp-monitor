@@ -488,6 +488,20 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertIn("github.event_name == 'workflow_dispatch'", condition)
             self.assertNotIn("github.event_name != 'pull_request'", condition)
 
+    def test_workflow_pushes_monitor_state_to_explicit_branch_ref(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github/workflows/iar-drp-monitor.yml"
+        ).read_text(encoding="utf-8")
+        block = "\n".join(_workflow_step_block(workflow, "Commit latest comparison state"))
+
+        self.assertIn('branch="${GITHUB_REF_NAME:-main}"', block)
+        self.assertIn('git fetch origin "$branch"', block)
+        self.assertIn('git rebase "origin/$branch"', block)
+        self.assertIn('git push origin "HEAD:$branch"', block)
+        self.assertNotIn("git pull --rebase", block)
+        self.assertNotIn("\n            git push\n", block)
+
 
 def _write_fixture_zip(path: Path, xml: str) -> Path:
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
