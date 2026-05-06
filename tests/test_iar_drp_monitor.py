@@ -140,6 +140,39 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertIn("drp_category_added", change_types)
             self.assertIn("has_criminal", categories)
 
+    def test_compare_rollups_reads_all_zip_xml_members_before_comparing(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            previous_zip = _write_fixture_zip_members(
+                root / "previous.xml.zip",
+                [
+                    ("b.xml", _fixture_xml_with_individual("1002", "Bailey", "Jones", "N")),
+                    ("a.xml", _fixture_xml_with_individual("1001", "Alex", "Smith", "Y")),
+                ],
+            )
+            current_zip = _write_fixture_zip_members(
+                root / "current.xml.zip",
+                [
+                    ("a.xml", _fixture_xml_with_individual("1001", "Alex", "Smith", "Y")),
+                    ("b.xml", _fixture_xml_with_individual("1002", "Bailey", "Jones", "N")),
+                ],
+            )
+            previous_outputs = _parse_fixture(previous_zip, root / "previous", "previous-run")
+            current_outputs = _parse_fixture(current_zip, root / "current", "current-run")
+
+            previous_rollup = _read_csv_by_key(previous_outputs.rollup_csv, "indvl_pk")
+            current_rollup = _read_csv_by_key(current_outputs.rollup_csv, "indvl_pk")
+            result = compare_rollups(
+                current_outputs.rollup_csv,
+                previous_outputs.rollup_csv,
+                run_id="current-run",
+                previous_run_id="previous-run",
+            )
+
+            self.assertEqual(set(previous_rollup), {"1001", "1002"})
+            self.assertEqual(set(current_rollup), {"1001", "1002"})
+            self.assertEqual(result.changes, [])
+
     def test_compare_rollups_reports_current_employer_changes(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -256,6 +289,60 @@ class IarDrpMonitorTests(unittest.TestCase):
             self.assertTrue(Path(state["changes_csv"]).exists())
             latest = json.loads((root / "data/state/latest_successful_run.json").read_text())
             self.assertEqual(latest["rollup_csv"], str(root / "data/processed/latest_drp_rollup.csv"))
+
+    def test_cli_skips_comparison_against_unversioned_partial_rollup_baseline(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_dir = root / "data"
+            processed_dir = data_dir / "processed"
+            state_dir = data_dir / "state"
+            processed_dir.mkdir(parents=True)
+            state_dir.mkdir(parents=True)
+            previous_rollup = processed_dir / "previous_rollup.csv"
+            previous_rollup.write_text(
+                "\n".join(
+                    [
+                        "run_id,source_file,source_url,source_generated_date,retrieved_at,indvl_pk,first_name,middle_name,last_name,suffix,active_ag_registration,profile_link,drp_count,has_any_drp,has_reg_action,has_criminal,has_bankrupt,has_civil_judgment,has_bond,has_judgment,has_investigation,has_customer_complaint,has_termination",
+                        "previous-run,previous.xml.zip,local:previous.xml.zip,2026-04-30,2026-04-30T00:00:00+00:00,1002,Bailey,,Jones,,Y,https://adviserinfo.sec.gov/IAPD/Individual/1002,0,N,N,N,N,N,N,N,N,N,N",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            (state_dir / "latest_successful_run.json").write_text(
+                json.dumps(
+                    {
+                        "run_id": "previous-run",
+                        "rollup_csv": str(previous_rollup),
+                    }
+                ),
+                encoding="utf-8",
+            )
+            zip_path = _write_fixture_zip_members(
+                root / "current.xml.zip",
+                [
+                    ("a.xml", _fixture_xml_with_individual("1001", "Alex", "Smith", "Y")),
+                    ("b.xml", _fixture_xml_with_individual("1002", "Bailey", "Jones", "N")),
+                ],
+            )
+            args = build_parser().parse_args(
+                [
+                    "run",
+                    "--input-zip",
+                    str(zip_path),
+                    "--data-dir",
+                    str(data_dir),
+                    "--run-id",
+                    "current-run",
+                ]
+            )
+
+            state = run(args)
+
+            self.assertEqual(state["change_count"], 0)
+            self.assertEqual(state["source_xml_member_count"], 2)
+            self.assertIn("rollup_parser_version", state)
+            self.assertIn("comparison_skipped_reason", state)
 
     def test_latest_command_prints_latest_successful_run(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -386,6 +473,13 @@ def _write_fixture_zip(path: Path, xml: str) -> Path:
     return path
 
 
+def _write_fixture_zip_members(path: Path, members: list[tuple[str, str]]) -> Path:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, xml in members:
+            archive.writestr(name, xml)
+    return path
+
+
 def _parse_fixture(zip_path: Path, output_dir: Path, run_id: str) -> ParseOutputs:
     output_dir.mkdir(parents=True)
     outputs = ParseOutputs(
@@ -423,6 +517,23 @@ def _fixture_xml(criminal: str) -> str:
       <DRPs>
         <DRP hasRegAction="Y" hasCriminal="N" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
         {extra_drp}
+      </DRPs>
+    </Indvl>
+  </Indvls>
+</IAPDIndividualReport>
+"""
+
+
+def _fixture_xml_with_individual(
+    indvl_pk: str, first_name: str, last_name: str, has_reg_action: str
+) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<IAPDIndividualReport GenOn="2026-04-30">
+  <Indvls>
+    <Indvl>
+      <Info lastNm="{last_name}" firstNm="{first_name}" indvlPK="{indvl_pk}" actvAGReg="Y" link="https://adviserinfo.sec.gov/IAPD/Individual/{indvl_pk}"/>
+      <DRPs>
+        <DRP hasRegAction="{has_reg_action}" hasCriminal="N" hasBankrupt="N" hasCivilJudc="N" hasBond="N" hasJudgment="N" hasInvstgn="N" hasCustComp="N" hasTermination="N"/>
       </DRPs>
     </Indvl>
   </Indvls>

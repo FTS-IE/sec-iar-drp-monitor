@@ -25,6 +25,7 @@ def write_markdown_report(
         f"- Source URL: {run_state['source_url']}",
         f"- Retrieved at: {run_state['retrieved_at']}",
         f"- XML generated date: {parse_stats.source_generated_date or 'Not provided'}",
+        f"- XML files parsed from ZIP: {parse_stats.source_xml_member_count:,}",
         f"- SHA-256: `{run_state['source_sha256']}`",
         "",
         "## Scope And Method",
@@ -40,11 +41,23 @@ def write_markdown_report(
         "",
     ]
 
+    comparison_skipped_reason = run_state.get("comparison_skipped_reason", "")
     if not previous_state:
         lines.extend(
             [
                 "## Changes Since Previous Run",
                 "No prior successful run was found. This run is the baseline for future comparisons.",
+                f"- Empty change CSV: `{changes_csv}`",
+                "",
+            ]
+        )
+    elif comparison_skipped_reason:
+        lines.extend(
+            [
+                "## Changes Since Previous Run",
+                f"- Previous run: `{previous_run_id}`",
+                f"- Comparison skipped: {comparison_skipped_reason}.",
+                "This run is the baseline for future comparisons.",
                 f"- Empty change CSV: `{changes_csv}`",
                 "",
             ]

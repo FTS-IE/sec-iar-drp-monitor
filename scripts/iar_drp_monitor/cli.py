@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .compare import CompareResult, compare_rollups, write_changes_csv
-from .constants import DEFAULT_DATA_DIR, DOWNLOAD_BASE_URL, MANIFEST_URL
+from .constants import (
+    DEFAULT_DATA_DIR,
+    DOWNLOAD_BASE_URL,
+    MANIFEST_URL,
+    ROLLUP_PARSER_VERSION,
+)
 from .downloader import (
     FeedFile,
     copy_local_feed,
@@ -241,13 +246,19 @@ def run(args: argparse.Namespace) -> dict:
         Path(previous_state["rollup_csv"]) if previous_state and previous_state.get("rollup_csv") else None
     )
     previous_run_id = previous_state.get("run_id", "") if previous_state else ""
-    if previous_state:
+    comparison_skipped_reason = ""
+    if previous_state and _previous_state_is_comparable(previous_state, previous_rollup_path):
         compare_result = compare_rollups(
             outputs.rollup_csv,
             previous_rollup_path,
             run_id=run_id,
             previous_run_id=previous_run_id,
         )
+    elif previous_state:
+        comparison_skipped_reason = _comparison_skipped_reason(
+            previous_state, previous_rollup_path
+        )
+        compare_result = CompareResult([], Counter(), Counter())
     else:
         compare_result = CompareResult([], Counter(), Counter())
 
@@ -263,6 +274,8 @@ def run(args: argparse.Namespace) -> dict:
         "source_date": feed.date,
         "source_sha256": source_sha256,
         "source_generated_date": parse_stats.source_generated_date,
+        "source_xml_member_count": parse_stats.source_xml_member_count,
+        "rollup_parser_version": ROLLUP_PARSER_VERSION,
         "retrieved_at": retrieved_at,
         "processed_at": _utc_now(),
         "raw_zip": str(raw_zip),
@@ -277,6 +290,8 @@ def run(args: argparse.Namespace) -> dict:
         "change_count": len(compare_result.changes),
         "reused_existing_raw_file": reused_existing,
     }
+    if comparison_skipped_reason:
+        run_state["comparison_skipped_reason"] = comparison_skipped_reason
 
     summary_md = run_summary_md
     changes_csv = run_changes_csv
@@ -334,6 +349,35 @@ def _failure_email_body(message: str) -> str:
             "",
             "Check the GitHub Actions run logs for details.",
         ]
+    )
+
+
+def _previous_state_is_comparable(
+    previous_state: dict, previous_rollup_path: Path | None
+) -> bool:
+    return (
+        previous_rollup_path is not None
+        and previous_rollup_path.exists()
+        and previous_state.get("rollup_parser_version") == ROLLUP_PARSER_VERSION
+    )
+
+
+def _comparison_skipped_reason(
+    previous_state: dict, previous_rollup_path: Path | None
+) -> str:
+    if previous_rollup_path is None:
+        return "the previous run state did not record a rollup CSV path"
+    if not previous_rollup_path.exists():
+        return f"the previous rollup CSV was not found at {previous_rollup_path}"
+    previous_version = previous_state.get("rollup_parser_version")
+    if previous_version is None:
+        return (
+            "the previous rollup was generated before full multi-file ZIP parsing "
+            "was tracked"
+        )
+    return (
+        f"the previous rollup parser version was {previous_version}, "
+        f"but the current parser version is {ROLLUP_PARSER_VERSION}"
     )
 
 

@@ -7,6 +7,7 @@ MANIFEST_URL = (
 )
 DOWNLOAD_BASE_URL = "https://reports.adviserinfo.sec.gov/reports/CompilationReports"
 DEFAULT_DATA_DIR = Path("data/iar_drp_monitor")
+ROLLUP_PARSER_VERSION = 2
 
 DRP_FLAG_MAP = {
     "hasRegAction": "has_reg_action",

@@ -34,6 +34,7 @@ class ParseOutputs:
 @dataclass(frozen=True)
 class ParseStats:
     source_generated_date: str
+    source_xml_member_count: int
     representative_count: int
     drp_record_count: int
     representatives_with_drp: int
@@ -45,12 +46,47 @@ def parse_feed_to_csv(zip_path: Path, source: SourceContext, outputs: ParseOutpu
     outputs.rollup_csv.parent.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(zip_path) as archive:
-        member_name = _find_xml_member(archive)
-        with archive.open(member_name) as xml_file:
-            return _parse_xml_stream(xml_file, source, outputs)
+        member_names = _find_xml_members(archive)
+        with (
+            outputs.representatives_csv.open("w", encoding="utf-8", newline="") as reps_handle,
+            outputs.drps_csv.open("w", encoding="utf-8", newline="") as drps_handle,
+            outputs.rollup_csv.open("w", encoding="utf-8", newline="") as rollup_handle,
+        ):
+            reps_writer = csv.DictWriter(reps_handle, fieldnames=REPRESENTATIVE_FIELDS)
+            drps_writer = csv.DictWriter(drps_handle, fieldnames=DRP_FIELDS)
+            rollup_writer = csv.DictWriter(rollup_handle, fieldnames=DRP_ROLLUP_FIELDS)
+            reps_writer.writeheader()
+            drps_writer.writeheader()
+            rollup_writer.writeheader()
+
+            source_generated_date = ""
+            representative_count = 0
+            drp_record_count = 0
+            representatives_with_drp = 0
+            for member_name in member_names:
+                with archive.open(member_name) as xml_file:
+                    stats = _parse_xml_stream(
+                        xml_file,
+                        source,
+                        reps_writer,
+                        drps_writer,
+                        rollup_writer,
+                    )
+                source_generated_date = source_generated_date or stats.source_generated_date
+                representative_count += stats.representative_count
+                drp_record_count += stats.drp_record_count
+                representatives_with_drp += stats.representatives_with_drp
+
+    return ParseStats(
+        source_generated_date=source_generated_date,
+        source_xml_member_count=len(member_names),
+        representative_count=representative_count,
+        drp_record_count=drp_record_count,
+        representatives_with_drp=representatives_with_drp,
+    )
 
 
-def _find_xml_member(archive: zipfile.ZipFile) -> str:
+def _find_xml_members(archive: zipfile.ZipFile) -> list[str]:
     xml_members = [
         name
         for name in archive.namelist()
@@ -58,53 +94,44 @@ def _find_xml_member(archive: zipfile.ZipFile) -> str:
     ]
     if not xml_members:
         raise ValueError("The ZIP archive does not contain an XML file.")
-    if len(xml_members) > 1:
-        xml_members.sort()
-    return xml_members[0]
+    return sorted(xml_members)
 
 
 def _parse_xml_stream(
-    xml_file, source: SourceContext, outputs: ParseOutputs
+    xml_file,
+    source: SourceContext,
+    reps_writer: csv.DictWriter,
+    drps_writer: csv.DictWriter,
+    rollup_writer: csv.DictWriter,
 ) -> ParseStats:
     source_generated_date = ""
     representative_count = 0
     drp_record_count = 0
     representatives_with_drp = 0
 
-    with (
-        outputs.representatives_csv.open("w", encoding="utf-8", newline="") as reps_handle,
-        outputs.drps_csv.open("w", encoding="utf-8", newline="") as drps_handle,
-        outputs.rollup_csv.open("w", encoding="utf-8", newline="") as rollup_handle,
-    ):
-        reps_writer = csv.DictWriter(reps_handle, fieldnames=REPRESENTATIVE_FIELDS)
-        drps_writer = csv.DictWriter(drps_handle, fieldnames=DRP_FIELDS)
-        rollup_writer = csv.DictWriter(rollup_handle, fieldnames=DRP_ROLLUP_FIELDS)
-        reps_writer.writeheader()
-        drps_writer.writeheader()
-        rollup_writer.writeheader()
+    context = ET.iterparse(xml_file, events=("start", "end"))
+    for event, element in context:
+        tag = _local_name(element.tag)
+        if event == "start" and tag == "IAPDIndividualReport":
+            source_generated_date = element.attrib.get("GenOn", "")
+        elif event == "end" and tag == "Indvl":
+            rep_row, drp_rows, rollup_row = _extract_individual(
+                element, source, source_generated_date
+            )
+            reps_writer.writerow(rep_row)
+            for drp_row in drp_rows:
+                drps_writer.writerow(drp_row)
+            rollup_writer.writerow(rollup_row)
 
-        context = ET.iterparse(xml_file, events=("start", "end"))
-        for event, element in context:
-            tag = _local_name(element.tag)
-            if event == "start" and tag == "IAPDIndividualReport":
-                source_generated_date = element.attrib.get("GenOn", "")
-            elif event == "end" and tag == "Indvl":
-                rep_row, drp_rows, rollup_row = _extract_individual(
-                    element, source, source_generated_date
-                )
-                reps_writer.writerow(rep_row)
-                for drp_row in drp_rows:
-                    drps_writer.writerow(drp_row)
-                rollup_writer.writerow(rollup_row)
-
-                representative_count += 1
-                drp_record_count += len(drp_rows)
-                if rollup_row["has_any_drp"] == "Y":
-                    representatives_with_drp += 1
-                element.clear()
+            representative_count += 1
+            drp_record_count += len(drp_rows)
+            if rollup_row["has_any_drp"] == "Y":
+                representatives_with_drp += 1
+            element.clear()
 
     return ParseStats(
         source_generated_date=source_generated_date,
+        source_xml_member_count=1,
         representative_count=representative_count,
         drp_record_count=drp_record_count,
         representatives_with_drp=representatives_with_drp,
