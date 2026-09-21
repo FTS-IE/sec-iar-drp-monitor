@@ -1,12 +1,12 @@
-# IAR DRP Change Summary: 20260918T174051Z
+# IAR DRP Change Summary: 20260921T192704Z
 
 ## Source
-- Current source file: `IA_INDVL_Feed_09_18_2026.xml.zip`
-- Source URL: https://reports.adviserinfo.sec.gov/reports/CompilationReports/IA_INDVL_Feed_09_18_2026.xml.zip
-- Retrieved at: 2026-09-18T17:40:51+00:00
-- XML generated date: 2026-09-18
+- Current source file: `IA_INDVL_Feed_09_21_2026.xml.zip`
+- Source URL: https://reports.adviserinfo.sec.gov/reports/CompilationReports/IA_INDVL_Feed_09_21_2026.xml.zip
+- Retrieved at: 2026-09-21T19:27:04+00:00
+- XML generated date: 2026-09-21
 - XML files parsed from ZIP: 20
-- SHA-256: `5895fcc1a21546a1b7a8212e9a91a7f4cd8fb3cc44c731edcc5e29c1423e51c9`
+- SHA-256: `80877f30a425e00f6ef04b2258ecefd6d3cb98588d232b79928cc7202d8690df`
 
 ## Scope And Method
 - Scope: Registered Investment Adviser Representative compilation feed only.
@@ -15,34 +15,34 @@
 - Reporting caution: a DRP flag is a disclosure signal in the source feed, not an independent finding that misconduct occurred.
 
 ## Current Run Counts
-- Representatives parsed: 439,848
-- DRP occurrence rows parsed: 60,017
-- Representatives with at least one DRP flag: 60,017
+- Representatives parsed: 439,956
+- DRP occurrence rows parsed: 60,023
+- Representatives with at least one DRP flag: 60,023
 
 ## Changes Since Previous Run
-- Previous run: `20260917T181238Z`
-- Total reported changes: 118
+- Previous run: `20260918T174051Z`
+- Total reported changes: 192
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
 
 ### Change Types
-- current_employer_changed: 70
-- new_representative_with_drp: 19
-- representative_removed_from_feed: 13
-- drp_category_added: 8
-- drp_count_changed: 7
-- drp_category_removed: 1
+- current_employer_changed: 123
+- new_representative_with_drp: 22
+- representative_removed_from_feed: 16
+- drp_count_changed: 12
+- drp_category_added: 10
+- drp_category_removed: 9
 
 ### Changed Categories
-- current_employer: 70
-- any_drp: 32
-- drp_count: 7
-- has_judgment: 3
-- has_customer_complaint: 2
-- has_termination: 2
-- has_reg_action: 2
+- current_employer: 123
+- any_drp: 38
+- drp_count: 12
+- has_judgment: 7
+- has_bankrupt: 7
+- has_customer_complaint: 4
+- has_reg_action: 1
 
 ## Output Files
-- Representatives CSV: `data/iar_drp_monitor/processed/20260918T174051Z_representatives.csv`
-- DRP occurrence CSV: `data/iar_drp_monitor/processed/20260918T174051Z_drps.csv`
+- Representatives CSV: `data/iar_drp_monitor/processed/20260921T192704Z_representatives.csv`
+- DRP occurrence CSV: `data/iar_drp_monitor/processed/20260921T192704Z_drps.csv`
 - Rollup CSV: `data/iar_drp_monitor/processed/latest_drp_rollup.csv.gz`
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
