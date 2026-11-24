@@ -64,9 +64,3 @@ For local testing without sending:
 ```bash
 python3 -m scripts.iar_drp_monitor notify-email --dry-run
 ```
-
-## Reporting Caution
-
-The output tracks DRP disclosure flags and current employer values in the SEC/IAPD
-compilation feed. A DRP flag is a source-data signal for reporting follow-up,
-not an independent finding that misconduct occurred.
