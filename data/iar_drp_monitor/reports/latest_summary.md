@@ -1,12 +1,12 @@
-# IAR DRP Change Summary: 20261126T225853Z
+# IAR DRP Change Summary: 20261127T224136Z
 
 ## Source
-- Current source file: `IA_INDVL_Feed_11_26_2026.xml.zip`
-- Source URL: https://reports.adviserinfo.sec.gov/reports/CompilationReports/IA_INDVL_Feed_11_26_2026.xml.zip
-- Retrieved at: 2026-11-26T22:58:53+00:00
-- XML generated date: 2026-11-26
+- Current source file: `IA_INDVL_Feed_11_27_2026.xml.zip`
+- Source URL: https://reports.adviserinfo.sec.gov/reports/CompilationReports/IA_INDVL_Feed_11_27_2026.xml.zip
+- Retrieved at: 2026-11-27T22:41:36+00:00
+- XML generated date: 2026-11-27
 - XML files parsed from ZIP: 20
-- SHA-256: `37321b27f2c295328de746545fef5eebc4f224376992d6ce8723b51d6aa69352`
+- SHA-256: `e94bc852cab81f48de6e50ef1e36e9796c4324641e789e76fbd3a8937a19fb70`
 
 ## Scope And Method
 - Scope: Registered Investment Adviser Representative compilation feed only.
@@ -15,34 +15,29 @@
 - Reporting caution: a DRP flag is a disclosure signal in the source feed, not an independent finding that misconduct occurred.
 
 ## Current Run Counts
-- Representatives parsed: 444,559
+- Representatives parsed: 444,554
 - DRP occurrence rows parsed: 60,108
 - Representatives with at least one DRP flag: 60,108
 
 ## Changes Since Previous Run
-- Previous run: `20261125T230525Z`
-- Total reported changes: 124
+- Previous run: `20261126T225853Z`
+- Total reported changes: 8
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
 
 ### Change Types
-- current_employer_changed: 79
-- drp_count_changed: 13
-- drp_category_added: 12
-- representative_removed_from_feed: 10
-- drp_category_removed: 5
-- new_representative_with_drp: 5
+- current_employer_changed: 5
+- representative_removed_from_feed: 1
+- drp_count_changed: 1
+- drp_category_added: 1
 
 ### Changed Categories
-- current_employer: 79
-- any_drp: 15
-- drp_count: 13
-- has_judgment: 12
-- has_customer_complaint: 3
-- has_criminal: 1
-- has_bankrupt: 1
+- current_employer: 5
+- any_drp: 1
+- drp_count: 1
+- has_judgment: 1
 
 ## Output Files
-- Representatives CSV: `data/iar_drp_monitor/processed/20261126T225853Z_representatives.csv`
-- DRP occurrence CSV: `data/iar_drp_monitor/processed/20261126T225853Z_drps.csv`
+- Representatives CSV: `data/iar_drp_monitor/processed/20261127T224136Z_representatives.csv`
+- DRP occurrence CSV: `data/iar_drp_monitor/processed/20261127T224136Z_drps.csv`
 - Rollup CSV: `data/iar_drp_monitor/processed/latest_drp_rollup.csv.gz`
 - Change CSV: `data/iar_drp_monitor/reports/latest_drp_changes.csv`
